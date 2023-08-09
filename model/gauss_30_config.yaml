@@ -1,0 +1,21 @@
+K: 24
+batch_size: 8
+epochs: 50
+lr: 0.0001
+noise_level: 0.117
+noisy_type: gauss
+num_conv2d_filters: 20
+num_conv3d_filters: 20
+num_convolutionblock_filters: 60
+patch_shape:
+- 64
+- 64
+checkpoint_path: ./results/SM-CNN/WDC/gauss_30/n2c_model.pt
+save_dir: ./results/SM-CNN/WDC/gauss_30
+test_file: ../datasets/WDC/test/gauss_30
+train_file: ../datasets/WDC/train
+train_type: n2c
+valid_file: ../datasets/WDC/valid
+arch: SM-CNN
+loss: CHAR
+gpus: 0,1
