@@ -10,8 +10,8 @@ from scipy.io import savemat, loadmat
 
 
 parser = argparse.ArgumentParser(description='Generate patches from Full Resolution mat files')
-parser.add_argument('--src_dir', default='C:/Users/orhant/Desktop/PHD/vit/datasets/datasets/WDC/test', type=str, help='Directory for full resolution images')
-parser.add_argument('--tar_dir', default='../../datasets/WDC/test', type=str, help='Directory for image patches')
+parser.add_argument('--src_dir', default='../datasets/WDC/', type=str, help='Directory for full resolution images')
+parser.add_argument('--tar_dir', default='../datasets/WDC/train', type=str, help='Directory for image patches')
 parser.add_argument('--ps', default=64, type=int, help='Image Patch Size')
 parser.add_argument('--num_patches', default=1024, type=int, help='Number of patches per image')
 parser.add_argument('--num_cores', default=8, type=int, help='Number of CPU Cores')
