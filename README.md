@@ -8,7 +8,7 @@ pip install -r requirements.txt
 ```
 ### Train and Test
 * Put your data into the 'datasets' directory 
-* Creat train, val and test patches:
+* Creat train and val patches:
 ```bash
 python get_patch_wdc.py
 ```
