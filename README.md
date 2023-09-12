@@ -1,5 +1,5 @@
 ## SM-CNN: Hyperspectral Image Denoising via Self-Modulating Convolutional Neural Networks
-[Paper](https://www.sciencedirect.com/science/article/pii/S0165168423003225?via%3Dihub) |
+[Paper](https://www.sciencedirect.com/science/article/pii/S0165168423003225?via%3Dihub)
 
 
 ### Installation
