@@ -124,6 +124,26 @@ class SSLoss(nn.Module):
         return loss
 
 
+LOSSES = {
+    'L1': L1Loss,          # MAE, the loss of Eq. 6 in the paper
+    'MSE': MSELoss,
+    'SL1': SmoothL1Loss,
+    'L1MSE': L1MSELoss,
+    'CHAR': CharbonnierLoss,
+    'MSETV': MSETVLoss,
+    'L1TV': L1TVLoss,
+}
+
+
+def build_loss(name):
+    """Loss selected by the `loss` config key; called as loss(clean, output)."""
+    if name == 'SS':
+        raise ValueError("loss 'SS' (SSLoss) needs a third input and is not supported by train.py")
+    if name not in LOSSES:
+        raise ValueError(f"unknown loss '{name}'; expected one of {sorted(LOSSES)}")
+    return LOSSES[name]()
+
+
 def l1_loss(x,y_out):
     loss = L1Loss()(x, y_out)
     return loss

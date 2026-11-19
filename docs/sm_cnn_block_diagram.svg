@@ -1,0 +1,256 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1640" height="1080" viewBox="0 0 1640 1080" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+<title>SM-CNN block diagram (fixed implementation)</title>
+<defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#334155"/></marker><marker id="arrMod" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#c2410c"/></marker><marker id="arrSkip" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#0f766e"/></marker><marker id="arrRes" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/></marker></defs>
+<rect width="1640" height="1080" fill="#ffffff"/>
+<text x="32" y="36" font-size="20" text-anchor="start" font-weight="bold" fill="#0f172a">SM-CNN denoiser — fixed implementation (K = 24, 2,404,361 trainable parameters)</text>
+<text x="32" y="60" font-size="13" text-anchor="start" font-weight="normal" fill="#475569">Torun et al., Signal Processing 214 (2024) 109248 · code: model/model.py · every block below has its own weights</text>
+<rect x="16" y="76" width="1608" height="470" rx="10" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.2"/>
+<text x="32" y="100" font-size="15" text-anchor="start" font-weight="bold" fill="#0f172a">(a) Overall network</text>
+<path d="M1060,96 H1090" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arr)"/>
+<text x="1098" y="100" font-size="12" text-anchor="start" font-weight="normal" fill="#475569">feature flow</text>
+<path d="M1200,96 H1230" fill="none" stroke="#c2410c" stroke-width="1.6" marker-end="url(#arrMod)"/>
+<text x="1238" y="100" font-size="12" text-anchor="start" font-weight="normal" fill="#475569">modulation (y<tspan dy="-6" font-size="75%">λ</tspan><tspan dy="6">​</tspan>)</text>
+<path d="M1340,96 H1370" fill="none" stroke="#0f766e" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#arrSkip)"/>
+<text x="1378" y="100" font-size="12" text-anchor="start" font-weight="normal" fill="#475569">skip connection</text>
+<path d="M1480,96 H1510" fill="none" stroke="#6d28d9" stroke-width="1.6" stroke-dasharray="7 4" marker-end="url(#arrRes)"/>
+<text x="1518" y="100" font-size="12" text-anchor="start" font-weight="normal" fill="#475569">global residual</text>
+<rect x="40" y="150" width="136" height="84" rx="6" fill="#fdba74" stroke="#c2410c" stroke-width="1.2"/>
+<text x="108" y="178.55" font-size="12" text-anchor="middle" font-weight="normal" fill="#0f172a">K adjacent noisy bands</text>
+<text x="108" y="196.55" font-size="13" text-anchor="middle" font-weight="normal" fill="#0f172a">y<tspan dy="-6" font-size="75%">λ</tspan><tspan dy="6">​</tspan>   1 × K × h × w</text>
+<text x="108" y="214.55" font-size="11" text-anchor="middle" font-weight="normal" fill="#475569">target band at index K//2</text>
+<rect x="40" y="340" width="136" height="64" rx="6" fill="#fde68a" stroke="#b45309" stroke-width="1.2"/>
+<text x="108" y="367.55" font-size="12" text-anchor="middle" font-weight="normal" fill="#0f172a">noisy band to denoise</text>
+<text x="108" y="385.55" font-size="13" text-anchor="middle" font-weight="normal" fill="#0f172a">y<tspan dy="-6" font-size="75%">s</tspan><tspan dy="6">​</tspan>   1 × h × w</text>
+<rect x="206" y="150" width="132" height="28" rx="6" fill="#fed7aa" stroke="#c2410c" stroke-width="1.2"/>
+<text x="272" y="168.5" font-size="12" text-anchor="middle" font-weight="normal" fill="#0f172a">conv3d K×3×3 → 20</text>
+<path d="M176,192 L206,164" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arr)"/>
+<path d="M338,164 H362" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arr)"/>
+<rect x="206" y="184" width="132" height="28" rx="6" fill="#fed7aa" stroke="#c2410c" stroke-width="1.2"/>
+<text x="272" y="202.5" font-size="12" text-anchor="middle" font-weight="normal" fill="#0f172a">conv3d K×5×5 → 20</text>
+<path d="M176,192 L206,198" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arr)"/>
+<path d="M338,198 H362" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arr)"/>
+<rect x="206" y="218" width="132" height="28" rx="6" fill="#fed7aa" stroke="#c2410c" stroke-width="1.2"/>
+<text x="272" y="236.5" font-size="12" text-anchor="middle" font-weight="normal" fill="#0f172a">conv3d K×7×7 → 20</text>
+<path d="M176,192 L206,232" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arr)"/>
+<path d="M338,232 H362" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arr)"/>
+<rect x="362" y="146" width="66" height="116" rx="6" fill="#e2e8f0" stroke="#334155" stroke-width="1.2"/>
+<text x="395" y="191.2" font-size="12" text-anchor="middle" font-weight="normal" fill="#0f172a">concat</text>
+<text x="395" y="208.2" font-size="12" text-anchor="middle" font-weight="normal" fill="#0f172a">+ ReLU</text>
+<text x="395" y="225.2" font-size="12" text-anchor="middle" font-weight="normal" fill="#475569">60</text>
+<rect x="206" y="330" width="132" height="28" rx="6" fill="#fef3c7" stroke="#b45309" stroke-width="1.2"/>
+<text x="272" y="348.5" font-size="12" text-anchor="middle" font-weight="normal" fill="#0f172a">conv2d 3×3 → 20</text>
+<path d="M176,372 L206,344" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arr)"/>
+<path d="M338,344 H362" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arr)"/>
+<rect x="206" y="364" width="132" height="28" rx="6" fill="#fef3c7" stroke="#b45309" stroke-width="1.2"/>
+<text x="272" y="382.5" font-size="12" text-anchor="middle" font-weight="normal" fill="#0f172a">conv2d 5×5 → 20</text>
+<path d="M176,372 L206,378" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arr)"/>
+<path d="M338,378 H362" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arr)"/>
+<rect x="206" y="398" width="132" height="28" rx="6" fill="#fef3c7" stroke="#b45309" stroke-width="1.2"/>
+<text x="272" y="416.5" font-size="12" text-anchor="middle" font-weight="normal" fill="#0f172a">conv2d 7×7 → 20</text>
+<path d="M176,372 L206,412" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arr)"/>
+<path d="M338,412 H362" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arr)"/>
+<rect x="362" y="326" width="66" height="116" rx="6" fill="#e2e8f0" stroke="#334155" stroke-width="1.2"/>
+<text x="395" y="371.2" font-size="12" text-anchor="middle" font-weight="normal" fill="#0f172a">concat</text>
+<text x="395" y="388.2" font-size="12" text-anchor="middle" font-weight="normal" fill="#0f172a">+ ReLU</text>
+<text x="395" y="405.2" font-size="12" text-anchor="middle" font-weight="normal" fill="#475569">60</text>
+<circle cx="490" cy="294" r="16" fill="#ffffff" stroke="#334155" stroke-width="1.4"/>
+<text x="490" y="299.04" font-size="14" text-anchor="middle" font-weight="bold" fill="#0f172a">C</text>
+<text x="518" y="287" font-size="11" text-anchor="middle" font-weight="normal" fill="#475569">120</text>
+<path d="M428,204 H490 V276" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arr)"/>
+<path d="M428,384 H490 V312" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arr)"/>
+<rect x="530" y="244" width="50" height="100" rx="6" fill="#bbf7d0" stroke="#15803d" stroke-width="1.2"/>
+<text transform="translate(555,294) rotate(-90)" font-size="12" text-anchor="middle" dominant-baseline="central" fill="#0f172a">conv 3×3 + ReLU</text>
+<text x="555" y="360" font-size="11" text-anchor="middle" font-weight="normal" fill="#475569">head</text>
+<path d="M506,294 H530" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arr)"/>
+<path d="M580,294 H610" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arr)"/>
+<path d="M108,150 V124 H1251" fill="none" stroke="#c2410c" stroke-width="1.6"/>
+<text x="820" y="114" font-size="12" text-anchor="middle" font-weight="normal" fill="#c2410c">y<tspan dy="-6" font-size="75%">λ</tspan><tspan dy="6">​</tspan> (squeezed to K × h × w) modulates every SSMRB → 16 SSMMs, each with its own convolutions</text>
+<rect x="610" y="244" width="46" height="100" rx="6" fill="#bfdbfe" stroke="#1d4ed8" stroke-width="1.2"/>
+<text transform="translate(633,294) rotate(-90)" font-size="13" text-anchor="middle" dominant-baseline="central" fill="#0f172a">SSMRB</text>
+<path d="M633,124 V244" fill="none" stroke="#c2410c" stroke-width="1.6" marker-end="url(#arrMod)"/>
+<rect x="670" y="244" width="46" height="100" rx="6" fill="#bfdbfe" stroke="#1d4ed8" stroke-width="1.2"/>
+<text transform="translate(693,294) rotate(-90)" font-size="13" text-anchor="middle" dominant-baseline="central" fill="#0f172a">SSMRB</text>
+<path d="M693,124 V244" fill="none" stroke="#c2410c" stroke-width="1.6" marker-end="url(#arrMod)"/>
+<rect x="730" y="244" width="46" height="100" rx="6" fill="#bbf7d0" stroke="#15803d" stroke-width="1.2"/>
+<text transform="translate(753,294) rotate(-90)" font-size="12" text-anchor="middle" dominant-baseline="central" fill="#0f172a">conv 3×3 + ReLU</text>
+<path d="M656,294 H670" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arr)"/>
+<path d="M716,294 H730" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arr)"/>
+<path d="M776,294 H796" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arr)"/>
+<text x="663" y="362" font-size="12" text-anchor="middle" font-weight="normal" fill="#475569">stage 1</text>
+<rect x="723" y="384" width="60" height="44" rx="6" fill="#99f6e4" stroke="#0f766e" stroke-width="1.2"/>
+<text x="753" y="403.55" font-size="11" text-anchor="middle" font-weight="normal" fill="#0f172a">conv 3×3</text>
+<text x="753" y="417.55" font-size="11" text-anchor="middle" font-weight="normal" fill="#0f172a">→ 15</text>
+<path d="M753,344 V384" fill="none" stroke="#0f766e" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#arrSkip)"/>
+<path d="M753,428 V456" fill="none" stroke="#0f766e" stroke-width="1.6" stroke-dasharray="5 4"/>
+<rect x="796" y="244" width="46" height="100" rx="6" fill="#bfdbfe" stroke="#1d4ed8" stroke-width="1.2"/>
+<text transform="translate(819,294) rotate(-90)" font-size="13" text-anchor="middle" dominant-baseline="central" fill="#0f172a">SSMRB</text>
+<path d="M819,124 V244" fill="none" stroke="#c2410c" stroke-width="1.6" marker-end="url(#arrMod)"/>
+<rect x="856" y="244" width="46" height="100" rx="6" fill="#bfdbfe" stroke="#1d4ed8" stroke-width="1.2"/>
+<text transform="translate(879,294) rotate(-90)" font-size="13" text-anchor="middle" dominant-baseline="central" fill="#0f172a">SSMRB</text>
+<path d="M879,124 V244" fill="none" stroke="#c2410c" stroke-width="1.6" marker-end="url(#arrMod)"/>
+<rect x="916" y="244" width="46" height="100" rx="6" fill="#bbf7d0" stroke="#15803d" stroke-width="1.2"/>
+<text transform="translate(939,294) rotate(-90)" font-size="12" text-anchor="middle" dominant-baseline="central" fill="#0f172a">conv 3×3 + ReLU</text>
+<path d="M842,294 H856" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arr)"/>
+<path d="M902,294 H916" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arr)"/>
+<path d="M962,294 H982" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arr)"/>
+<text x="849" y="362" font-size="12" text-anchor="middle" font-weight="normal" fill="#475569">stage 2</text>
+<rect x="909" y="384" width="60" height="44" rx="6" fill="#99f6e4" stroke="#0f766e" stroke-width="1.2"/>
+<text x="939" y="403.55" font-size="11" text-anchor="middle" font-weight="normal" fill="#0f172a">conv 3×3</text>
+<text x="939" y="417.55" font-size="11" text-anchor="middle" font-weight="normal" fill="#0f172a">→ 15</text>
+<path d="M939,344 V384" fill="none" stroke="#0f766e" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#arrSkip)"/>
+<path d="M939,428 V456" fill="none" stroke="#0f766e" stroke-width="1.6" stroke-dasharray="5 4"/>
+<rect x="982" y="244" width="46" height="100" rx="6" fill="#bfdbfe" stroke="#1d4ed8" stroke-width="1.2"/>
+<text transform="translate(1005,294) rotate(-90)" font-size="13" text-anchor="middle" dominant-baseline="central" fill="#0f172a">SSMRB</text>
+<path d="M1005,124 V244" fill="none" stroke="#c2410c" stroke-width="1.6" marker-end="url(#arrMod)"/>
+<rect x="1042" y="244" width="46" height="100" rx="6" fill="#bfdbfe" stroke="#1d4ed8" stroke-width="1.2"/>
+<text transform="translate(1065,294) rotate(-90)" font-size="13" text-anchor="middle" dominant-baseline="central" fill="#0f172a">SSMRB</text>
+<path d="M1065,124 V244" fill="none" stroke="#c2410c" stroke-width="1.6" marker-end="url(#arrMod)"/>
+<rect x="1102" y="244" width="46" height="100" rx="6" fill="#bbf7d0" stroke="#15803d" stroke-width="1.2"/>
+<text transform="translate(1125,294) rotate(-90)" font-size="12" text-anchor="middle" dominant-baseline="central" fill="#0f172a">conv 3×3 + ReLU</text>
+<path d="M1028,294 H1042" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arr)"/>
+<path d="M1088,294 H1102" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arr)"/>
+<path d="M1148,294 H1168" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arr)"/>
+<text x="1035" y="362" font-size="12" text-anchor="middle" font-weight="normal" fill="#475569">stage 3</text>
+<rect x="1095" y="384" width="60" height="44" rx="6" fill="#99f6e4" stroke="#0f766e" stroke-width="1.2"/>
+<text x="1125" y="403.55" font-size="11" text-anchor="middle" font-weight="normal" fill="#0f172a">conv 3×3</text>
+<text x="1125" y="417.55" font-size="11" text-anchor="middle" font-weight="normal" fill="#0f172a">→ 15</text>
+<path d="M1125,344 V384" fill="none" stroke="#0f766e" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#arrSkip)"/>
+<path d="M1125,428 V456" fill="none" stroke="#0f766e" stroke-width="1.6" stroke-dasharray="5 4"/>
+<rect x="1168" y="244" width="46" height="100" rx="6" fill="#bfdbfe" stroke="#1d4ed8" stroke-width="1.2"/>
+<text transform="translate(1191,294) rotate(-90)" font-size="13" text-anchor="middle" dominant-baseline="central" fill="#0f172a">SSMRB</text>
+<path d="M1191,124 V244" fill="none" stroke="#c2410c" stroke-width="1.6" marker-end="url(#arrMod)"/>
+<rect x="1228" y="244" width="46" height="100" rx="6" fill="#bfdbfe" stroke="#1d4ed8" stroke-width="1.2"/>
+<text transform="translate(1251,294) rotate(-90)" font-size="13" text-anchor="middle" dominant-baseline="central" fill="#0f172a">SSMRB</text>
+<path d="M1251,124 V244" fill="none" stroke="#c2410c" stroke-width="1.6" marker-end="url(#arrMod)"/>
+<rect x="1288" y="244" width="46" height="100" rx="6" fill="#bbf7d0" stroke="#15803d" stroke-width="1.2"/>
+<text transform="translate(1311,294) rotate(-90)" font-size="12" text-anchor="middle" dominant-baseline="central" fill="#0f172a">conv 3×3 + ReLU</text>
+<path d="M1214,294 H1228" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arr)"/>
+<path d="M1274,294 H1288" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arr)"/>
+<text x="1221" y="362" font-size="12" text-anchor="middle" font-weight="normal" fill="#475569">stage 4</text>
+<rect x="1281" y="384" width="60" height="44" rx="6" fill="#99f6e4" stroke="#0f766e" stroke-width="1.2"/>
+<text x="1311" y="403.55" font-size="11" text-anchor="middle" font-weight="normal" fill="#0f172a">conv 3×3</text>
+<text x="1311" y="417.55" font-size="11" text-anchor="middle" font-weight="normal" fill="#0f172a">→ 15</text>
+<path d="M1311,344 V384" fill="none" stroke="#0f766e" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#arrSkip)"/>
+<path d="M1311,428 V456" fill="none" stroke="#0f766e" stroke-width="1.6" stroke-dasharray="5 4"/>
+<path d="M753,456 H1350" fill="none" stroke="#0f766e" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#arrSkip)"/>
+<text x="760" y="476" font-size="12" text-anchor="start" font-weight="normal" fill="#0f766e">one skip per stage, each through its own conv 3×3 (60 → 15)</text>
+<circle cx="1366" cy="456" r="16" fill="#ffffff" stroke="#334155" stroke-width="1.4"/>
+<text x="1366" y="461.04" font-size="14" text-anchor="middle" font-weight="bold" fill="#0f172a">C</text>
+<text x="1366" y="432" font-size="11" text-anchor="middle" font-weight="normal" fill="#475569">60</text>
+<rect x="1398" y="431" width="116" height="50" rx="6" fill="#e2e8f0" stroke="#334155" stroke-width="1.2"/>
+<text x="1456" y="451.7" font-size="12" text-anchor="middle" font-weight="normal" fill="#0f172a">ReLU → conv 3×3</text>
+<text x="1456" y="468.7" font-size="12" text-anchor="middle" font-weight="normal" fill="#475569">60 → 1</text>
+<path d="M1382,456 H1398" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arr)"/>
+<circle cx="1564" cy="456" r="14" fill="#ffffff" stroke="#334155" stroke-width="1.4"/>
+<text x="1564" y="462.48" font-size="18" text-anchor="middle" font-weight="bold" fill="#0f172a">+</text>
+<path d="M1514,456 H1550" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arr)"/>
+<rect x="1512" y="260" width="104" height="68" rx="6" fill="#c7d2fe" stroke="#4338ca" stroke-width="1.2"/>
+<text x="1564" y="289.55" font-size="12" text-anchor="middle" font-weight="normal" fill="#0f172a">denoised band</text>
+<text x="1564" y="307.55" font-size="13" text-anchor="middle" font-weight="normal" fill="#0f172a">x̂<tspan dy="-6" font-size="75%">s</tspan><tspan dy="6">​</tspan>   1 × h × w</text>
+<path d="M1564,442 V328" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arr)"/>
+<path d="M108,404 V512 H1564 V470" fill="none" stroke="#6d28d9" stroke-width="1.6" stroke-dasharray="7 4" marker-end="url(#arrRes)"/>
+<text x="836" y="530" font-size="12" text-anchor="middle" font-weight="normal" fill="#6d28d9">global residual learning: x̂<tspan dy="-6" font-size="75%">s</tspan><tspan dy="6">​</tspan> = network output + y<tspan dy="-6" font-size="75%">s</tspan><tspan dy="6">​</tspan></text>
+<rect x="16" y="562" width="800" height="300" rx="10" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.2"/>
+<text x="32" y="586" font-size="15" text-anchor="start" font-weight="bold" fill="#0f172a">(b) Spectral self-modulating residual block (SSMRB)</text>
+<text x="70" y="690" font-size="13" text-anchor="middle" font-weight="normal" fill="#0f172a" font-style="italic">x</text>
+<text x="70" y="724" font-size="11" text-anchor="middle" font-weight="normal" fill="#475569">60×h×w</text>
+<path d="M40,700 H130" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arr)"/>
+<path d="M110,700 V632 H744 V686" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arr)"/>
+<text x="430" y="624" font-size="12" text-anchor="middle" font-weight="normal" fill="#475569">identity skip</text>
+<rect x="130" y="672" width="84" height="56" rx="6" fill="#fbcfe8" stroke="#be185d" stroke-width="1.2"/>
+<text x="172.0" y="704.55" font-size="13" text-anchor="middle" font-weight="normal" fill="#0f172a">SSMM₁</text>
+<path d="M214,700 H236" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arr)"/>
+<rect x="236" y="672" width="72" height="56" rx="6" fill="#fef9c3" stroke="#a16207" stroke-width="1.2"/>
+<text x="272.0" y="696.2" font-size="12" text-anchor="middle" font-weight="normal" fill="#0f172a">LeakyReLU</text>
+<text x="272.0" y="712.2" font-size="11" text-anchor="middle" font-weight="normal" fill="#475569">slope 0.02</text>
+<path d="M308,700 H330" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arr)"/>
+<rect x="330" y="672" width="84" height="56" rx="6" fill="#dcfce7" stroke="#15803d" stroke-width="1.2"/>
+<text x="372.0" y="696.2" font-size="12" text-anchor="middle" font-weight="normal" fill="#0f172a">conv 3×3</text>
+<text x="372.0" y="712.2" font-size="11" text-anchor="middle" font-weight="normal" fill="#475569">60 → 60</text>
+<path d="M414,700 H436" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arr)"/>
+<rect x="436" y="672" width="84" height="56" rx="6" fill="#fbcfe8" stroke="#be185d" stroke-width="1.2"/>
+<text x="478.0" y="704.55" font-size="13" text-anchor="middle" font-weight="normal" fill="#0f172a">SSMM₂</text>
+<path d="M520,700 H542" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arr)"/>
+<rect x="542" y="672" width="72" height="56" rx="6" fill="#fef9c3" stroke="#a16207" stroke-width="1.2"/>
+<text x="578.0" y="696.2" font-size="12" text-anchor="middle" font-weight="normal" fill="#0f172a">LeakyReLU</text>
+<text x="578.0" y="712.2" font-size="11" text-anchor="middle" font-weight="normal" fill="#475569">slope 0.02</text>
+<path d="M614,700 H636" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arr)"/>
+<rect x="636" y="672" width="84" height="56" rx="6" fill="#dcfce7" stroke="#15803d" stroke-width="1.2"/>
+<text x="678.0" y="696.2" font-size="12" text-anchor="middle" font-weight="normal" fill="#0f172a">conv 3×3</text>
+<text x="678.0" y="712.2" font-size="11" text-anchor="middle" font-weight="normal" fill="#475569">60 → 60</text>
+<path d="M720,700 H730" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arr)"/>
+<circle cx="744" cy="700" r="14" fill="#ffffff" stroke="#334155" stroke-width="1.4"/>
+<text x="744" y="706.48" font-size="18" text-anchor="middle" font-weight="bold" fill="#0f172a">+</text>
+<path d="M758,700 H806" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arr)"/>
+<text x="784" y="690" font-size="12" text-anchor="middle" font-weight="normal" fill="#475569">out</text>
+<text x="36" y="794" font-size="13" text-anchor="start" font-weight="normal" fill="#c2410c">y<tspan dy="-6" font-size="75%">λ</tspan><tspan dy="6">​</tspan> (K×h×w)</text>
+<path d="M124,790 H478" fill="none" stroke="#c2410c" stroke-width="1.6"/>
+<path d="M172,790 V728" fill="none" stroke="#c2410c" stroke-width="1.6" marker-end="url(#arrMod)"/>
+<path d="M478,790 V728" fill="none" stroke="#c2410c" stroke-width="1.6" marker-end="url(#arrMod)"/>
+<text x="36" y="840" font-size="12" text-anchor="start" font-weight="normal" fill="#475569">266,880 parameters per SSMRB · two SSMMs and two convolutions, none shared with other blocks</text>
+<rect x="832" y="562" width="792" height="300" rx="10" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.2"/>
+<text x="848" y="586" font-size="15" text-anchor="start" font-weight="bold" fill="#0f172a">(c) Spectral self-modulation module (SSMM)</text>
+<text x="852" y="640" font-size="13" text-anchor="start" font-weight="normal" fill="#0f172a" font-style="italic">f<tspan dy="-6" font-size="75%">pre</tspan><tspan dy="6">​</tspan></text>
+<path d="M850,650 H900" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arr)"/>
+<rect x="900" y="620" width="200" height="60" rx="6" fill="#fce7f3" stroke="#be185d" stroke-width="1.2"/>
+<text x="1000" y="645.2" font-size="12" text-anchor="middle" font-weight="normal" fill="#0f172a">instance norm (per channel)</text>
+<text x="1000" y="663.2" font-size="11" text-anchor="middle" font-weight="normal" fill="#475569">(f − μ_c) / √(σ_c² + δ),  δ = 10⁻⁵</text>
+<circle cx="1170" cy="650" r="14" fill="#ffffff" stroke="#334155" stroke-width="1.4"/>
+<text x="1170" y="655.76" font-size="16" text-anchor="middle" font-weight="bold" fill="#0f172a">×</text>
+<circle cx="1290" cy="650" r="14" fill="#ffffff" stroke="#334155" stroke-width="1.4"/>
+<text x="1290" y="656.48" font-size="18" text-anchor="middle" font-weight="bold" fill="#0f172a">+</text>
+<path d="M1100,650 H1156" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arr)"/>
+<path d="M1184,650 H1276" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arr)"/>
+<path d="M1304,650 H1370" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arr)"/>
+<text x="1378" y="655" font-size="13" text-anchor="start" font-weight="normal" fill="#0f172a" font-style="italic">f<tspan dy="-6" font-size="75%">next</tspan><tspan dy="6">​</tspan></text>
+<text x="848" y="772" font-size="14" text-anchor="start" font-weight="normal" fill="#c2410c" font-style="italic">y<tspan dy="-6" font-size="75%">λ</tspan><tspan dy="6">​</tspan></text>
+<text x="848" y="790" font-size="11" text-anchor="start" font-weight="normal" fill="#475569">K×h×w</text>
+<path d="M892,776 H930" fill="none" stroke="#c2410c" stroke-width="1.6" marker-end="url(#arrMod)"/>
+<rect x="930" y="748" width="150" height="56" rx="6" fill="#fbcfe8" stroke="#be185d" stroke-width="1.2"/>
+<text x="1005" y="771.7" font-size="12" text-anchor="middle" font-weight="normal" fill="#0f172a">conv 5×5, K → 60</text>
+<text x="1005" y="788.7" font-size="11" text-anchor="middle" font-weight="normal" fill="#475569">+ ReLU (shared trunk)</text>
+<path d="M1080,776 H1245" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arr)"/>
+<path d="M1100,776 V720 H1125" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arr)"/>
+<rect x="1125" y="700" width="90" height="40" rx="6" fill="#fbcfe8" stroke="#be185d" stroke-width="1.2"/>
+<text x="1170" y="724" font-size="12" text-anchor="middle" font-weight="normal" fill="#0f172a">conv 3×3 → γ</text>
+<rect x="1245" y="756" width="90" height="40" rx="6" fill="#fbcfe8" stroke="#be185d" stroke-width="1.2"/>
+<text x="1290" y="780" font-size="12" text-anchor="middle" font-weight="normal" fill="#0f172a">conv 3×3 → β</text>
+<path d="M1170,700 V664" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arr)"/>
+<text x="1180" y="688" font-size="12" text-anchor="start" font-weight="normal" fill="#0f172a">1 + γ</text>
+<path d="M1290,756 V664" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arr)"/>
+<text x="1300" y="712" font-size="12" text-anchor="start" font-weight="normal" fill="#0f172a">β</text>
+<text x="1420" y="702" font-size="12" text-anchor="start" font-weight="normal" fill="#475569">γ, β: 60 × h × w</text>
+<text x="1420" y="720" font-size="12" text-anchor="start" font-weight="normal" fill="#475569">(per pixel, per channel)</text>
+<text x="848" y="828" font-size="12" text-anchor="start" font-weight="normal" fill="#0f172a">f<tspan dy="-6" font-size="75%">next</tspan><tspan dy="6">​</tspan> = norm(f<tspan dy="-6" font-size="75%">pre</tspan><tspan dy="6">​</tspan>) ⊙ (1 + γ(y<tspan dy="-6" font-size="75%">λ</tspan><tspan dy="6">​</tspan>)) + β(y<tspan dy="-6" font-size="75%">λ</tspan><tspan dy="6">​</tspan>)    (Eq. 3, with γ re-parameterised as 1 + γ)</text>
+<text x="848" y="848" font-size="12" text-anchor="start" font-weight="normal" fill="#475569">100,980 parameters per SSMM · γ and β come from two separate conv 3×3 heads</text>
+<rect x="16" y="878" width="1608" height="186" rx="10" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.2"/>
+<text x="32" y="902" font-size="15" text-anchor="start" font-weight="bold" fill="#0f172a">(d) Parameters (K = 24)</text>
+<text x="40" y="926" font-size="12.5" text-anchor="start" font-weight="normal" fill="#0f172a">Spatial branch: 3 × conv2d (1 → 20)</text>
+<text x="410" y="926" font-size="12.5" text-anchor="end" font-weight="normal" fill="#0f172a">1,720</text>
+<text x="40" y="943" font-size="12.5" text-anchor="start" font-weight="normal" fill="#0f172a">Spectral branch: 3 × conv3d (1 → 20)</text>
+<text x="410" y="943" font-size="12.5" text-anchor="end" font-weight="normal" fill="#0f172a">39,900</text>
+<text x="40" y="960" font-size="12.5" text-anchor="start" font-weight="normal" fill="#0f172a">Head: conv 3×3, 120 → 60</text>
+<text x="410" y="960" font-size="12.5" text-anchor="end" font-weight="normal" fill="#0f172a">64,860</text>
+<text x="40" y="977" font-size="12.5" text-anchor="start" font-weight="normal" fill="#0f172a">8 × SSMRB (266,880 each)</text>
+<text x="410" y="977" font-size="12.5" text-anchor="end" font-weight="normal" fill="#0f172a">2,135,040</text>
+<text x="40" y="994" font-size="12.5" text-anchor="start" font-weight="normal" fill="#0f172a">4 × stage conv 3×3, 60 → 60</text>
+<text x="410" y="994" font-size="12.5" text-anchor="end" font-weight="normal" fill="#0f172a">129,840</text>
+<text x="40" y="1011" font-size="12.5" text-anchor="start" font-weight="normal" fill="#0f172a">4 × skip conv 3×3, 60 → 15</text>
+<text x="410" y="1011" font-size="12.5" text-anchor="end" font-weight="normal" fill="#0f172a">32,460</text>
+<text x="40" y="1028" font-size="12.5" text-anchor="start" font-weight="normal" fill="#0f172a">Tail: conv 3×3, 60 → 1</text>
+<text x="410" y="1028" font-size="12.5" text-anchor="end" font-weight="normal" fill="#0f172a">541</text>
+<text x="40" y="1045" font-size="12.5" text-anchor="start" font-weight="bold" fill="#0f172a">Total (= Table 5 of the paper)</text>
+<text x="410" y="1045" font-size="12.5" text-anchor="end" font-weight="bold" fill="#0f172a">2,404,361</text>
+<line x1="40" y1="1034" x2="410" y2="1034" stroke="#94a3b8" stroke-width="1"/>
+<text x="460" y="902" font-size="15" text-anchor="start" font-weight="bold" fill="#0f172a">Fixed relative to the previous implementation</text>
+<circle cx="466" cy="924" r="3" fill="#334155"/>
+<text x="478" y="928" font-size="12.5" text-anchor="start" font-weight="normal" fill="#0f172a">Every SSMRB, SSMM, stage conv and skip conv has its own weights (the old code reused one of each: 248,576 parameters).</text>
+<circle cx="466" cy="949" r="3" fill="#334155"/>
+<text x="478" y="953" font-size="12.5" text-anchor="start" font-weight="normal" fill="#0f172a">γ and β are predicted by two separate conv 3×3 heads (the old code used one convolution, so γ was equal to β).</text>
+<circle cx="466" cy="974" r="3" fill="#334155"/>
+<text x="478" y="978" font-size="12.5" text-anchor="start" font-weight="normal" fill="#0f172a">The noisy input band and the clean target are the same band, index K//2 (old: input band 11, target band 12).</text>
+<circle cx="466" cy="999" r="3" fill="#334155"/>
+<text x="478" y="1003" font-size="12.5" text-anchor="start" font-weight="normal" fill="#0f172a">Instance norm uses the biased variance of Eqs. 4–5; the constructor takes keyword arguments (old call swapped the 2D/3D filter counts).</text>
+<circle cx="466" cy="1024" r="3" fill="#334155"/>
+<text x="478" y="1028" font-size="12.5" text-anchor="start" font-weight="normal" fill="#0f172a">Inference mirror-pads K//2 bands, slides a K-band window and denoises each full band, for any image size or band count.</text>
+</svg>

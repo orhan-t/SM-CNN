@@ -1,166 +1,136 @@
+"""Denoise a test HSI with a trained SM-CNN and report MPSNR / MSSIM / SAM.
+
+    python predict.py --config-file gauss_blind_config.yaml
+
+`test_file` (config, or --test-file) is either a .mat file with the full clean cube
+`gt` [H, W, B] and noisy cube `input` (written by get_patches_wdc_test.py) or a
+directory of legacy per-band windows. If the .mat file has no `input`, the noise of
+`test_noisy_type` (default: `noisy_type`) is synthesized with a fixed seed.
+
+As in the paper (Fig. 1), the noisy cube is mirror-padded along the spectral axis
+and every band is denoised from its K-band window; the image is processed at full
+spatial size since the network is fully convolutional.
+"""
+import argparse
+import json
 import os
-import os.path
+import time
+
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 import numpy as np
 import torch
-from torch.utils.data import DataLoader
-import matplotlib.pyplot as plt
-from model import init_weight, SMCNN
-import yaml
-import argparse
-from utils import _loss, AttrDict, merged_patch, save_output, load_checkpoint
-from metrics import _psnr, _ssim
-import time
-from tqdm import tqdm
-from dataset_denoising import get_test_data
-from losses import CharbonnierLoss, L1Loss, MSELoss, SmoothL1Loss, L1MSELoss, MSETVLoss, L1TVLoss, SSLoss
 
-######### Set GPUs ###########
-os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"] = '0'
-
-parser = argparse.ArgumentParser()
-parser.add_argument('--config-file',help='path to the config file')
-args = parser.parse_args()
-
-with open(args.config_file) as fp:
-    config = yaml.safe_load(fp)
-    config = AttrDict(config)
+from dataset_denoising import load_test_cube
+from dataset_utils import pad_spectral
+from metrics import cube_metrics
+from model import build_model, center_band_index
+from noise import build_noise
+from utils import load_checkpoint, load_config, save_output, select_gpus
 
 
-
-checkpoint_path = config.checkpoint_path
-num_epochs = config.epochs
-learning_rate = config.lr
-noise_level = config.noise_level
-patch_size = config.patch_shape
-train_type = config.train_type
-K = config.K
-arch = config.arch
-test_file = config.test_file
-loss_type = config.loss
-save_dir = config.save_dir
-
-if not os.path.isdir(save_dir):
-    os.makedirs(save_dir)
+def parse_args():
+    parser = argparse.ArgumentParser(description='Test SM-CNN')
+    parser.add_argument('--config-file', required=True, help='path to the config file')
+    parser.add_argument('--checkpoint', help='overrides checkpoint_path of the config')
+    parser.add_argument('--test-file', help='overrides test_file of the config')
+    parser.add_argument('--batch-size', type=int, default=8, help='bands per forward pass')
+    parser.add_argument('--seed', type=int, default=0, help='seed for synthesized test noise')
+    return parser.parse_args()
 
 
-
-# Get cpu or gpu device for training.
-device = "cuda" if torch.cuda.is_available() else "cpu"
-
-print("Using {} device".format(device))
-print('===> Loading datasets')
-img_options_train = {'patch_size':patch_size[0], 'K':K}
-
-test_data = get_test_data(test_file, img_options_train)
-
-test_dataloader = DataLoader(test_data, batch_size=1, shuffle=False, drop_last=False, num_workers=0)
-
-len_trainset = test_dataloader.__len__()
-print("Sizeof training set: ", len_trainset)
-
-if arch == 'SM-CNN':
-    model = SMCNN(config.num_conv2d_filters, config.num_conv3d_filters, config.num_convolutionblock_filters,
-                    config.K)
-    model.apply(init_weight)
-else:
-    print('No model!')
-
-#send model to device
-model.to(device)
-
-#loss_fn = _loss
-#loss_fn = _loss
-if loss_type == 'L1':
-    loss_fn = L1Loss().to(device)
-elif loss_type == 'MSE':
-    loss_fn = MSELoss().to(device)
-elif loss_type == 'SL1':
-    loss_fn = SmoothL1Loss().to(device)
-elif loss_type == 'L1MSE':
-    loss_fn = L1MSELoss().to(device)
-elif loss_type == 'CHAR':
-    loss_fn = CharbonnierLoss().to(device)
-elif loss_type == 'MSETV':
-    loss_fn = MSETVLoss().to(device)
-elif loss_type == 'L1TV':
-    loss_fn = L1TVLoss().to(device)
-elif loss_type == 'SS':
-    loss_fn = SSLoss(alpha=0.9).to(device)
-else:
-    assert 'Unexpected Loss!'
-
-def test(dataloader, model, loss_fn):
-    hsi_image_list = []
-    clean_image_list = []
-    noisy_image_list = []
-    test_loss, average_psnr, average_ssim = 0, 0, 0
-    sample_count = 0
-    with torch.no_grad():
-        model.eval()
-        for batch, (clean, spectral_volume) in enumerate(tqdm(dataloader)):
-            spatial_image = spectral_volume[..., int(K / 2) - 1, :, :]
-
-            clean_band = clean[..., int(K / 2) - 1, :, :]
-            # send gpu
-            clean_band, spectral_volume = clean_band.to(device), spectral_volume.to(device)
-            spatial_image = spatial_image.to(device)
-
-            # Compute prediction error
-            dn_output = model(spatial_image, spectral_volume)
-            # dn_output = model(spectral_volume, bandwidth)
-
-            loss = loss_fn(clean_band, dn_output)
-
-            test_loss += loss.item()
-            average_psnr += _psnr(clean_band, dn_output)
-            average_ssim += _ssim(clean_band, dn_output)
-            hsi_image_list.append(np.squeeze(dn_output.detach().cpu().numpy(), axis=0))
-            clean_image_list.append(np.squeeze(clean_band.detach().cpu().numpy(), axis=0))
-            noisy_image_list.append(np.squeeze(spatial_image.detach().cpu().numpy(), axis=0))
-            sample_count += 1
-
-    test_loss /= sample_count
-    average_psnr /= sample_count
-    average_ssim /= sample_count
-    print(f"Test loss: {test_loss:>7f}  mpsnr:{average_psnr:>5.3f} mssim:{average_ssim:>.3f}\n")
-    return test_loss, clean_image_list, noisy_image_list, hsi_image_list, average_psnr, average_ssim
+@torch.no_grad()
+def denoise_cube(model, noisy, K, device, batch_size=8):
+    """Denoise a band-first cube [B, H, W] band by band from K-band windows."""
+    B = noisy.shape[0]
+    center = center_band_index(K)
+    padded = pad_spectral(noisy, K, axis=0)  # window k = padded[k:k + K], band k at index `center`
+    denoised = np.empty_like(noisy)
+    for start in range(0, B, batch_size):
+        stop = min(start + batch_size, B)
+        volume = np.stack([padded[k:k + K] for k in range(start, stop)])            # [b, K, H, W]
+        volume = torch.from_numpy(np.ascontiguousarray(volume)).unsqueeze(1).to(device)  # [b, 1, K, H, W]
+        output = model(volume[:, :, center], volume)                               # [b, 1, H, W]
+        denoised[start:stop] = output.squeeze(1).cpu().numpy()
+    return denoised
 
 
-if os.path.isfile(checkpoint_path):
-    checkpoint = torch.load(checkpoint_path)
-    #model.load_state_dict(checkpoint['model_state_dict'])
+def false_color(cube, bands):
+    """[B, H, W] cube -> [H, W, 3] image from the given band indices."""
+    return np.stack([cube[b] for b in bands], axis=-1)
+
+
+def main():
+    args = parse_args()
+    config = load_config(args.config_file)
+    device = select_gpus(config)
+    print(f'Using {device} device')
+
+    K = config.K
+    train_type = config.get('train_type', 'n2c')
+    arch = config.get('arch', 'SM-CNN')
+    save_dir = config.save_dir
+    os.makedirs(save_dir, exist_ok=True)
+
+    model = build_model(config).to(device).eval()
+    checkpoint_path = args.checkpoint or config.checkpoint_path
+    if not os.path.isfile(checkpoint_path):
+        raise FileNotFoundError(f'checkpoint not found: {checkpoint_path} (train the model first)')
+    checkpoint = torch.load(checkpoint_path, map_location=device)
     load_checkpoint(model, checkpoint)
-    init_epoch = checkpoint['epoch']
-    best_loss = checkpoint['loss']
-    print(f"Checkpoint epoch {init_epoch:>3d} is loaded!\n")
-    print(checkpoint_path)
-else:
-    print("No Checkpoint!\n")
+    print(f"Loaded {checkpoint_path} (epoch {checkpoint.get('epoch', '?')})")
 
-print("Testing...\n")
-inittime = time.time()
-test_loss_avg, clean, noisy, test_output, mpsnr, mssim = test(test_dataloader, model, loss_fn)
-elapsed = time.time() - inittime
-print(f'Test completed... Elapsed = {elapsed:>.4f}')
+    test_file = args.test_file or config.test_file
+    print(f'===> Loading test data {test_file}')
+    clean, noisy = load_test_cube(test_file)
+    noise_type = config.get('test_noisy_type', config.noisy_type)
+    if noisy is None:
+        noise = build_noise(noise_type, config.get('noise_level'))
+        noisy = noise(clean, np.random.default_rng(args.seed))
+        print(f"'input' not found in the test file: synthesized '{noise_type}' noise (seed {args.seed})")
+    print(f'Test cube: {clean.shape[1]}x{clean.shape[2]} pixels, {clean.shape[0]} bands')
 
-clean_image, noise_image, hsi_image = merged_patch(clean, noisy, test_output, shape=(256,256,191), patch=256)
-img_ar_noisy = np.clip(noise_image, 0, 1)
-img_ar_hsid = np.clip(hsi_image, 0, 1)
-img_ar_clean = np.clip(clean_image, 0, 1)
+    print('Testing...')
+    start = time.time()
+    denoised = denoise_cube(model, noisy, K, device, args.batch_size)
+    elapsed = time.time() - start
+    print(f'Test completed... Elapsed = {elapsed:.4f} s')
 
-save_output(img_ar_hsid, save_dir, train_type)
+    clean = np.clip(clean, 0, 1)
+    noisy = np.clip(noisy, 0, 1)
+    denoised = np.clip(denoised, 0, 1)
+    results = {'noisy': cube_metrics(clean, noisy), arch: cube_metrics(clean, denoised),
+               'runtime_s': elapsed, 'checkpoint': checkpoint_path, 'test_file': test_file}
+    for name in ('noisy', arch):
+        m = results[name]
+        print(f"{name:>8}: MPSNR {m['MPSNR']:.3f}  MSSIM {m['MSSIM']:.4f}  SAM {m['SAM']:.4f}")
 
-fig, (axe11, axe12, axe13) = plt.subplots(1, 3, figsize=(12, 4))
-fig.subplots_adjust(wspace=0, hspace=0)
+    save_output(denoised.transpose(1, 2, 0), save_dir, train_type)  # [H, W, B] under key 'data'
+    with open(os.path.join(save_dir, f'metrics_{train_type}.json'), 'w') as fp:
+        json.dump(results, fp, indent=2)
 
-axe11.set_title('Temiz görüntü', fontsize=12)
-axe11.imshow(img_ar_clean[:, :, [57, 27, 17]], cmap='gray')
-axe12.set_title('Gürültülü görüntü ($\sigma$=%d)' %(round(noise_level*255)), fontsize=12)
-axe12.imshow(img_ar_noisy[:, :, [57, 27, 17]], cmap='gray')
-axe13.set_title(arch + '(PSNR=%.3f, SSIM=%.3f)' % (mpsnr, mssim), fontsize=12)
-axe13.imshow(img_ar_hsid[:, :, [57, 27, 17]], cmap='gray')
-plt.tight_layout()
-plt.savefig(save_dir + '/rgb_' + train_type + ".png")
-#plt.show()
-print("Done!")
+    B = clean.shape[0]
+    rgb_bands = config.get('rgb_bands', [57, 27, 17])  # false-color bands of the paper for WDC
+    if max(rgb_bands) >= B:
+        rgb_bands = [int(B * 0.75), int(B * 0.45), int(B * 0.15)]
+    if noise_type == 'gauss' and config.get('noise_level') is not None:
+        noisy_title = r'Gürültülü görüntü ($\sigma$=%d)' % round(config.noise_level * 255)
+    else:
+        noisy_title = f'Gürültülü görüntü ({noise_type})'
+    m = results[arch]
+    fig, axes = plt.subplots(1, 3, figsize=(12, 4))
+    for ax, img, title in zip(axes, (clean, noisy, denoised),
+                              ('Temiz görüntü', noisy_title,
+                               f"{arch} (PSNR={m['MPSNR']:.3f}, SSIM={m['MSSIM']:.3f})")):
+        ax.imshow(false_color(img, rgb_bands))
+        ax.set_title(title, fontsize=12)
+        ax.axis('off')
+    plt.tight_layout()
+    plt.savefig(os.path.join(save_dir, f'rgb_{train_type}.png'), bbox_inches='tight')
+    plt.close(fig)
+    print('Done!')
+
+
+if __name__ == '__main__':
+    main()

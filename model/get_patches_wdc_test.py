@@ -1,66 +1,66 @@
+"""Create a noisy test cube (clean `gt` + noisy `input`) for predict.py.
 
-from glob import glob
-from tqdm import tqdm
-import numpy as np
-import os
-from natsort import natsorted
-from joblib import Parallel, delayed
-import multiprocessing
+    python get_patches_wdc_test.py --config-file gauss_50_config.yaml
+    python get_patches_wdc_test.py --noise mixture --out ../datasets/WDC/test/mixture.mat
+
+The clean cube is read from --src_file (default: the 200 x 200 x 191 WDC test area
+used in the paper), noise of the requested type is added with a fixed seed
+(noise.py, Cases 1-5 of the paper) and the result is written as a single .mat file
+with keys 'gt' and 'input' ([H, W, B], float32). predict.py pads and slides the
+K-band window itself, so no per-band window files are needed.
+
+With --config-file, the noise type (`test_noisy_type`, falling back to `noisy_type`),
+`noise_level` and the output path (`test_file`) are taken from the config.
+"""
 import argparse
-from scipy.io import savemat, loadmat
+import os
+
+import numpy as np
+from scipy.io import loadmat, savemat
+
+from noise import build_noise
+from utils import load_config
+
+parser = argparse.ArgumentParser(description='Generate a noisy test cube')
+parser.add_argument('--config-file', help='take noise type, noise_level and output path from a config')
+parser.add_argument('--src_file', default='../datasets/WDC/test/GT_crop.mat', help='clean test cube [H, W, B]')
+parser.add_argument('--key', help='variable name of the clean cube (default: the only variable in the file)')
+parser.add_argument('--noise', help="noise type: gauss, blind, noniid, stripe, deadline, impulse, mixture, complex")
+parser.add_argument('--noise_level', type=float, help="sigma on the [0, 1] scale for 'gauss' (e.g. 50/255)")
+parser.add_argument('--seed', type=int, default=0, help='random seed of the noise')
+parser.add_argument('--out', help='output .mat file')
 
 
-parser = argparse.ArgumentParser(description='Generate patches from Full Resolution mat files')
-parser.add_argument('--src_dir', default='../datasets/WDC/test', type=str, help='Directory for full resolution images')
-parser.add_argument('--tar_dir', default='../datasets/WDC/test/blind', type=str, help='Directory for image patches')
-parser.add_argument('--ps', default=256, type=int, help='Image Patch Size')
-parser.add_argument('--num_patches', default=1, type=int, help='Number of patches per image')
-parser.add_argument('--num_cores', default=8, type=int, help='Number of CPU Cores')
-parser.add_argument('--K', default=24, type=int, help='Number of bands')
+def read_clean_cube(path, key=None):
+    mat = loadmat(path)
+    variables = [k for k in mat if not k.startswith('__')]
+    if key is None:
+        if len(variables) != 1:
+            raise ValueError(f'{path} holds {variables}; choose one with --key')
+        key = variables[0]
+    return np.float32(mat[key])
 
 
-args = parser.parse_args()
+def main():
+    args = parser.parse_args()
+    config = load_config(args.config_file) if args.config_file else {}
+    noise_type = args.noise or config.get('test_noisy_type', config.get('noisy_type'))
+    noise_level = args.noise_level if args.noise_level is not None else config.get('noise_level')
+    out = args.out or config.get('test_file') or f'../datasets/WDC/test/{noise_type}.mat'
+    if noise_type is None:
+        raise ValueError('give --noise or --config-file')
+    if not out.endswith('.mat'):
+        raise ValueError(f'output must be a .mat file, got {out}')
 
-src = args.src_dir
-tar = args.tar_dir
-PS = args.ps
-NUM_PATCHES = args.num_patches
-NUM_CORES = args.num_cores
-K=args.K
+    clean = read_clean_cube(args.src_file, args.key)                     # [H, W, B]
+    noise = build_noise(noise_type, noise_level)
+    noisy = noise(clean.transpose(2, 0, 1), np.random.default_rng(args.seed)).transpose(1, 2, 0)
 
-if os.path.exists(tar):
-    os.removedirs(tar)
-os.makedirs(tar)
+    os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
+    savemat(out, {'gt': clean, 'input': np.float32(noisy)})
+    print(f"{out}: {clean.shape[0]}x{clean.shape[1]}x{clean.shape[2]}, noise '{noise_type}'"
+          + (f' (sigma {noise_level:.4f})' if noise_type == 'gauss' else '') + f', seed {args.seed}')
 
-#get sorted folders
-files = natsorted(glob(os.path.join(src, '*.mat')))
 
-print(files)
-
-clean_file = files[0]
-print(clean_file)
-clean_img = loadmat(clean_file)
-bands = clean_img['gt'].shape[-1]
-clean = np.concatenate([clean_img['gt'][..., range(int(K / 2), 0, -1)],
-                                        clean_img['gt'],
-                                        clean_img['gt'][
-                                        ..., range(bands - 1, bands - int(K/2),  -1)]], axis=-1)
-noisy = np.concatenate([clean_img['input'][..., range(int(K / 2), 0, -1)],
-                                        clean_img['input'],
-                                        clean_img['input'][
-                                        ..., range(bands - 1, bands - int(K/2),  -1)]], axis=-1)
-def save_output(dir, clean, noisy, name):
-    mdic = {"gt": clean, "input": noisy}
-    savemat(dir + "/" + name + ".mat", mdic)
-
-def save_files(i):
-    H = clean_img['gt'].shape[0]
-    W = clean_img['gt'].shape[1]
-    for j in range(NUM_PATCHES):
-        for k in range(0, bands, 1):
-            clean_patch = clean[i * PS:i * PS + PS, j * PS:j * PS + PS, k:k + int(K)]
-            noisy_patch = noisy[i * PS:i * PS + PS, j * PS:j * PS + PS, k:k + int(K)]
-
-            save_output(tar, clean_patch, noisy_patch, 'patch_{}_{}_{}'.format(i + 1, j + 1, k + 1))
-
-Parallel(n_jobs=NUM_CORES)(delayed(save_files)(i) for i in tqdm(range(NUM_PATCHES)))
+if __name__ == '__main__':
+    main()

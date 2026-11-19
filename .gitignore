@@ -1,0 +1,18 @@
+CLAUDE.md
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Training / inference outputs (checkpoints, logs, predictions)
+results/
+
+# Data: ignore everything generated, keep only the bundled clean test cubes.
+# Git cannot re-include a file whose parent directory is excluded, so each
+# level is excluded by contents (dir/*) and the path down is re-included.
+/datasets/*
+!/datasets/WDC/
+/datasets/WDC/*
+!/datasets/WDC/test/
+/datasets/WDC/test/*
+!/datasets/WDC/test/GT_crop*.mat

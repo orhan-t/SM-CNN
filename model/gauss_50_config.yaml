@@ -12,7 +12,7 @@ patch_shape:
 - 64
 checkpoint_path: ./results/SM-CNN/WDC/gauss_50/n2c_model.pt
 save_dir: ./results/SM-CNN/WDC/gauss_50
-test_file: ../datasets/WDC/test/gauss_50
+test_file: ../datasets/WDC/test/gauss_50.mat
 train_file: ../datasets/WDC/train
 train_type: n2c
 valid_file: ../datasets/WDC/valid

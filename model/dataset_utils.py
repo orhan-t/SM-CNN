@@ -1,5 +1,19 @@
+import numpy as np
 import torch
 import os
+
+
+def pad_spectral(cube, K, axis=0):
+    """Mirror-pad the spectral axis so that every band has a full K-band window.
+
+    K // 2 bands are reflected in front and K - 1 - K // 2 at the back
+    (reflection excludes the edge band). Window k = padded[k:k + K] along `axis`
+    then holds original band k at index K // 2 (model.center_band_index).
+    """
+    pad = [(0, 0)] * cube.ndim
+    pad[axis] = (K // 2, K - 1 - K // 2)
+    return np.pad(cube, pad, mode='reflect')
+
 
 ### rotate and flip
 class Augment_RGB_torch:

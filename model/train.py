@@ -1,271 +1,175 @@
-if __name__ == '__main__':
-    import os.path
-    import numpy as np
-    import torch
-    from torchvision.transforms import Compose
-    from torch.utils.data import DataLoader
-    import matplotlib.pyplot as plt
-    from model import init_weight, SMCNN
-    import yaml
-    import argparse
-    from utils import *
-    from metrics import _psnr, _ssim
-    import random
-    from tqdm import tqdm
-    from dataset_denoising import get_training_data
-    from losses import CharbonnierLoss, L1Loss, MSELoss, SmoothL1Loss, L1MSELoss, MSETVLoss, L1TVLoss,SSLoss
-    from torch.utils.tensorboard import SummaryWriter
+"""Train SM-CNN.
 
-    torch.backends.cudnn.benchmark = True #data boyutu değişmediğinde runtime kısaltacak şekilde ayarlıyor? data boyutu değişire işe yaramayabilir.
+    python train.py --config-file gauss_blind_config.yaml            # new run
+    python train.py --config-file gauss_blind_config.yaml --resume   # continue from <save_dir>/last_model.pt
 
-    random.seed(1234)
-    np.random.seed(1234)
-    torch.manual_seed(1234)
-    torch.cuda.manual_seed_all(1234)
+Checkpoints written to save_dir:
+    <train_type>_model.pt   best validation loss (what predict.py loads via checkpoint_path)
+    last_model.pt           latest epoch (used by --resume)
+    epoch_<N>_model.pt      every `save_every` epochs
+"""
+import argparse
+import math
+import os
+import random
 
+import numpy as np
+import torch
+from torch.utils.data import DataLoader
+from torch.utils.tensorboard import SummaryWriter
+from tqdm import tqdm
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--config-file',help='path to the config file')
-    args = parser.parse_args()
-
-    with open(args.config_file) as fp:
-        config = yaml.safe_load(fp)
-        config = AttrDict(config)
+from dataset_denoising import get_training_data
+from losses import build_loss
+from metrics import batch_psnr, batch_ssim
+from model import build_model, center_band_index, count_parameters
+from noise import build_noise
+from utils import load_checkpoint, load_config, select_gpus, unwrap
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(description='Train SM-CNN')
+    parser.add_argument('--config-file', required=True, help='path to the config file')
+    parser.add_argument('--resume', nargs='?', const='last', default=None,
+                        help='resume training from a checkpoint (default: <save_dir>/last_model.pt)')
+    return parser.parse_args()
 
-    checkpoint_path = config.checkpoint_path
-    num_epochs = config.epochs
-    learning_rate = config.lr
-    noise_level = config.noise_level
-    noise_type = config.noisy_type
-    batch_size = config.batch_size
-    patch_size = config.patch_shape
-    train_type = config.train_type
-    K = config.K
-    train_file = config.train_file
-    valid_file = config.valid_file
-    arch = config.arch
-    loss_type = config.loss
-    gpus = config.gpus
+
+def set_seed(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
+
+def run_epoch(model, loader, loss_fn, device, center, optimizer=None, compute_ssim=False):
+    """One pass over `loader`; trains when an optimizer is given, otherwise evaluates."""
+    training = optimizer is not None
+    model.train(training)
+    totals = {'loss': 0.0, 'psnr': 0.0, 'ssim': 0.0}
+    count = 0
+    with torch.set_grad_enabled(training):
+        for clean_band, noisy_volume in tqdm(loader, desc='train' if training else 'valid', leave=False):
+            clean_band = clean_band.to(device, non_blocking=True)        # [N, 1, H, W]
+            noisy_volume = noisy_volume.to(device, non_blocking=True)    # [N, 1, K, H, W]
+            noisy_band = noisy_volume[:, :, center]                      # same band as the target
+
+            output = model(noisy_band, noisy_volume)
+            loss = loss_fn(clean_band, output)
+            if training:
+                optimizer.zero_grad(set_to_none=True)
+                loss.backward()
+                optimizer.step()
+
+            n = clean_band.shape[0]
+            totals['loss'] += loss.item() * n
+            totals['psnr'] += batch_psnr(clean_band, output) * n
+            if compute_ssim:
+                totals['ssim'] += batch_ssim(clean_band, output) * n
+            count += n
+    return {k: v / count for k, v in totals.items()}
+
+
+def main():
+    args = parse_args()
+    config = load_config(args.config_file)
+    if config.get('train_type', 'n2c') != 'n2c':
+        raise ValueError(f"unsupported train_type '{config.train_type}' (only 'n2c' is implemented)")
+    train_type = config.get('train_type', 'n2c')
+
+    seed = config.get('seed', 1234)
+    set_seed(seed)
+    device = select_gpus(config)
+    torch.backends.cudnn.benchmark = True
+    print(f'Using {device} device')
+
     save_dir = config.save_dir
+    os.makedirs(save_dir, exist_ok=True)
 
-
-    if not os.path.isdir(save_dir):
-        os.makedirs(save_dir)
-
-
-    ######### Set GPUs ###########
-    os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-    os.environ["CUDA_VISIBLE_DEVICES"] = gpus
-
-    # Get cpu or gpu device for training.
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    print("Using {} device".format(device))
-
+    K = config.K
+    center = center_band_index(K)
+    img_options = {'patch_size': config.patch_shape[0], 'K': K}
+    noise = build_noise(config.noisy_type, config.get('noise_level'))
 
     print('===> Loading datasets')
-    img_options_train = {'patch_size':patch_size[0], 'K':K}
+    train_data = get_training_data(config.train_file, img_options, noise=noise, augment=True)
+    valid_data = get_training_data(config.valid_file, img_options, noise=noise, augment=False,
+                                   deterministic=True, seed=seed)
+    num_workers = config.get('num_workers', 8)
+    loader_kwargs = dict(batch_size=config.batch_size, num_workers=num_workers,
+                         pin_memory=device.type == 'cuda', persistent_workers=num_workers > 0)
+    train_loader = DataLoader(train_data, shuffle=True, drop_last=False, **loader_kwargs)
+    valid_loader = DataLoader(valid_data, shuffle=False, drop_last=False, **loader_kwargs)
+    print(f'Training patches: {len(train_data)}, validation patches: {len(valid_data)}')
 
-    train_data = get_training_data(train_file, img_options_train)
-    valid_data = get_training_data(valid_file, img_options_train)
+    model = build_model(config).to(device)
+    print(f"Model is {config.get('arch', 'SM-CNN')} ({count_parameters(model):,} parameters)")
+    if device.type == 'cuda' and torch.cuda.device_count() > 1:
+        model = torch.nn.DataParallel(model)
 
+    loss_fn = build_loss(config.loss).to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=config.lr)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=config.get('lr_step', 40),
+                                                gamma=config.get('lr_gamma', 0.1))
+    print(f'Training is {train_type}, loss is {config.loss}, noise is {config.noisy_type}')
 
-    train_dataloader = DataLoader(train_data, batch_size=batch_size, shuffle=True, drop_last=False, num_workers=8)
-    valid_dataloader = DataLoader(valid_data, batch_size=batch_size, shuffle=False, drop_last=False, num_workers=8)
-
-    len_trainset = train_dataloader.__len__()
-    len_valset = valid_dataloader.__len__()
-    print("Sizeof training set: ", len_trainset,", sizeof validation set: ", len_valset)
-
-    if arch == 'SM-CNN':
-        model = SMCNN(config.num_conv2d_filters, config.num_conv3d_filters, config.num_convolutionblock_filters,
-                        config.K)
-        model.apply(init_weight)
-    else:
-        print('No model!')
-
-
-    ######### DataParallel ###########
-    model = torch.nn.DataParallel(model)
-    model.to(device)
-
-    #loss_fn = _loss
-    if loss_type == 'L1':
-        loss_fn = L1Loss().to(device)
-    elif loss_type == 'MSE':
-        loss_fn = MSELoss().to(device)
-    elif loss_type == 'SL1':
-        loss_fn = SmoothL1Loss().to(device)
-    elif loss_type == 'L1MSE':
-        loss_fn = L1MSELoss().to(device)
-    elif loss_type == 'CHAR':
-        loss_fn = CharbonnierLoss().to(device)
-    elif loss_type == 'MSETV':
-        loss_fn = MSETVLoss().to(device)
-    elif loss_type == 'L1TV':
-        loss_fn = L1TVLoss().to(device)
-    elif loss_type == 'SS':
-        loss_fn = SSLoss(alpha=0.9).to(device)
-    else:
-        assert 'Unexpected Loss!'
-
-    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=40, gamma=0.1)
-
-    print("Training is "+ train_type)
-    print("Loss is "+loss_type)
-    print("Model is "+arch)
-
-    sigmas = [10, 30, 50, 70]
-    blind_noise = AddNoiseBlind(sigmas)
-    complex_noise = Compose([
-        AddNoiseNoniid(sigmas),
-        SequentialSelect(
-            transforms=[
-                lambda x: x,
-                AddNoiseImpulse(),
-                AddNoiseStripe(),
-                AddNoiseDeadline()
-            ]
-        )
-    ])
-
-
-    def train(dataloader, model, loss_fn, optimizer):
-        model.train()
-        loss_train = 0
-        psnr = 0
-        ssim = 0
-        sample_count = 0
-        model.train()
-        for batch, (clean_band, spectral_volume) in enumerate(tqdm(dataloader)):
-
-            if noise_type == 'blind':
-                spectral_volume = blind_noise(spectral_volume)
-            elif noise_type == "gauss":
-                spectral_volume = torch_noise(spectral_volume, noise_level)
-            elif noise_type == "complex":
-                spectral_volume = complex_noise(spectral_volume)
-
-            spatial_image = spectral_volume[..., int(K / 2) - 1, :, :]
-
-            # send gpu
-            clean_band, spectral_volume = clean_band.to(device), spectral_volume.to(device)
-            spatial_image = spatial_image.to(device)
-
-            # Compute prediction error
-            dn_output = model(spatial_image, spectral_volume)
-            #dn_output = model(spectral_volume, bandwidth)
-            if train_type == 'n2c':
-                loss = loss_fn(clean_band, dn_output)
-            else:
-                assert 'Unexpected train!'
-            # Backpropagation
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-
-            loss_train += loss.item()
-            psnr += _psnr(clean_band,dn_output)
-            ssim += _ssim(clean_band,dn_output)
-            sample_count += 1
-            #print(f"Progress: [{sample_count*len(clean_band):>5d}/{size:>5d}]\n")
-        scheduler.step()
-        average_loss = loss_train/sample_count
-        average_psnr = psnr/sample_count
-        average_ssim = ssim/sample_count
-        print(f"Train loss: {average_loss:>7f}  mpsnr:{average_psnr:>5.3f} mssim:{average_ssim:>.3f}\n")
-        return average_loss, average_psnr, average_ssim
-
-    def test(dataloader, model, loss_fn):
-        size = len(dataloader.dataset)
-        model.train()
-        loss_test = 0
-        psnr = 0
-        ssim = 0
-        sample_count = 0
-        with torch.no_grad():
-            model.eval()
-            for batch, (clean_band, spectral_volume) in enumerate(tqdm(dataloader)):
-
-                if noise_type == 'blind':
-                    spectral_volume = blind_noise(spectral_volume)
-                elif noise_type == "gauss":
-                    spectral_volume = torch_noise(spectral_volume, noise_level)
-                elif noise_type == "complex":
-                    spectral_volume = complex_noise(spectral_volume)
-
-                spatial_image = spectral_volume[..., int(K / 2) - 1, :, :]
-                # send gpu
-                clean_band, spectral_volume = clean_band.to(device), spectral_volume.to(device)
-                spatial_image = spatial_image.to(device)
-
-                # Compute prediction error
-                dn_output = model(spatial_image, spectral_volume)
-                #residue = model(spectral_volume, bandwidth)
-                if train_type == 'n2c':
-                    loss = loss_fn(clean_band, dn_output)
-
-                loss_test += loss.item()
-                psnr += _psnr(clean_band, dn_output)
-                ssim += _ssim(clean_band, dn_output)
-                sample_count += 1
-                # print(f"Progress: [{sample_count*len(clean_band):>5d}/{size:>5d}]\n")
-
-        average_loss = loss_test / sample_count
-        average_psnr = psnr / sample_count
-        average_ssim = ssim / sample_count
-        print(f"Test loss: {average_loss:>7f}  mpsnr:{average_psnr:>5.3f} mssim:{average_ssim:>.3f}\n")
-        torch.cuda.empty_cache()
-        return average_loss, average_psnr, average_ssim
-
-
-    if os.path.isfile(checkpoint_path):
-        checkpoint = torch.load(checkpoint_path)
-        model.load_state_dict(checkpoint['model_state_dict'])
+    start_epoch, best_loss = 1, math.inf
+    if args.resume:
+        resume_path = os.path.join(save_dir, 'last_model.pt') if args.resume == 'last' else args.resume
+        checkpoint = torch.load(resume_path, map_location=device)
+        load_checkpoint(unwrap(model), checkpoint)
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        init_epoch = 0
-        best_loss = np.array(1e6)
-        print(f"Checkpoint epoch {init_epoch:>3d} is loaded!\n")
-        print(checkpoint_path)
-    else:
-        init_epoch = 0
-        best_loss = np.array(1e6)
-        print('No checkpoint!')
-
+        if 'scheduler_state_dict' in checkpoint:
+            scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+        start_epoch = checkpoint['epoch'] + 1
+        best_loss = checkpoint.get('best_loss', checkpoint.get('loss', math.inf))
+        print(f'Resumed from {resume_path} (epoch {checkpoint["epoch"]})')
 
     writer = SummaryWriter(save_dir)
+    best_path = os.path.join(save_dir, f'{train_type}_model.pt')
+    last_path = os.path.join(save_dir, 'last_model.pt')
+    save_every = config.get('save_every', 10)
 
-    for t in range(init_epoch+1,num_epochs+1):
-        print(f"Epoch {t}\n-------------------------------")
-        train_loss_avg, train_psnr_avg, train_ssim_avg = train(train_dataloader, model, loss_fn, optimizer)
-        writer.add_scalar('Train Loss', train_loss_avg, t)
-        writer.add_scalar('Train PSNR', train_psnr_avg, t)
-        writer.add_scalar('Train SSIM', train_ssim_avg, t)
+    for epoch in range(start_epoch, config.epochs + 1):
+        print(f'Epoch {epoch}/{config.epochs}  lr={optimizer.param_groups[0]["lr"]:.2e}')
+        train_stats = run_epoch(model, train_loader, loss_fn, device, center, optimizer=optimizer)
+        scheduler.step()
+        valid_stats = run_epoch(model, valid_loader, loss_fn, device, center, compute_ssim=True)
+        if device.type == 'cuda':
+            torch.cuda.empty_cache()
 
-        test_loss_avg, test_psnr_avg, test_ssim_avg = test(valid_dataloader, model, loss_fn)
-        is_best = bool(test_loss_avg < best_loss)
-        writer.add_scalar('Test Loss', test_loss_avg, t)
-        writer.add_scalar('Test PSNR', test_psnr_avg, t)
-        writer.add_scalar('Test SSIM', test_ssim_avg, t)
+        print(f"  train loss {train_stats['loss']:.6f}  mpsnr {train_stats['psnr']:.3f}")
+        print(f"  valid loss {valid_stats['loss']:.6f}  mpsnr {valid_stats['psnr']:.3f}  "
+              f"mssim {valid_stats['ssim']:.4f}")
+        writer.add_scalar('Train Loss', train_stats['loss'], epoch)
+        writer.add_scalar('Train PSNR', train_stats['psnr'], epoch)
+        writer.add_scalar('Test Loss', valid_stats['loss'], epoch)
+        writer.add_scalar('Test PSNR', valid_stats['psnr'], epoch)
+        writer.add_scalar('Test SSIM', valid_stats['ssim'], epoch)
+        writer.add_scalar('Learning Rate', optimizer.param_groups[0]['lr'], epoch)
 
-
+        is_best = valid_stats['loss'] < best_loss
         if is_best:
-            best_loss = test_loss_avg
+            best_loss = valid_stats['loss']
+        checkpoint = {
+            'epoch': epoch,
+            'model_state_dict': unwrap(model).state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'scheduler_state_dict': scheduler.state_dict(),
+            'loss': float(valid_stats['loss']),
+            'best_loss': float(best_loss),
+            'config': dict(config),
+        }
+        torch.save(checkpoint, last_path)
+        if is_best:
+            torch.save(checkpoint, best_path)
+            print(f'  new best model saved to {best_path}')
+        if save_every and epoch % save_every == 0:
+            torch.save(checkpoint, os.path.join(save_dir, f'epoch_{epoch}_model.pt'))
 
-            torch.save({
-                'epoch': t,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'loss': best_loss,
-                }, save_dir + '/' + train_type + '_model.pt')
-        if t in [10, 20, 30, 40, 50, 80, 100]:
-            torch.save({
-                'epoch': t,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'loss': best_loss,
-            }, save_dir + '/' + 'epoch_' + str(t) + '_model.pt')
+    writer.close()
+    print('Done!')
 
-    print("Done!")
+
+if __name__ == '__main__':  # required on Windows: DataLoader workers re-import this module
+    main()
